@@ -1,4 +1,4 @@
-web-crawling-tools
+Web crawling tools
 ==================
 
-sitemap.xml builder
+* sitemap-builder - sitemap.xml builder
