@@ -5,6 +5,7 @@
 
     var spawn = require('child_process').spawn,
         http = require('http'),
+        fs = require('fs'),
         processor = require('processor'),
         com = processor.create;
     // using
@@ -210,7 +211,7 @@
 
                         try {
                             res.writeHead(200, { 'Content-Type': 'application/javascript' });
-                            res.write( com('fs.filereader').readFromSync('.' + url_match[0]) );
+                            res.write( fs.readFileSync('.' + url_match[0]) );
                         } catch (e) {
                             console.log(e);
                         }
