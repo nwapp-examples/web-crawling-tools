@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en-US">
+<head>
+    <meta charset="utf-8">
+    <title>agent 00X</title>
+</head>
+<body>
+<script>
+//     crawler example
+//     (c) 2014 vadim b. antheworld@gmail.com
+//     license: MIT
+(function() { "use strict";
+
+    var crawling_agent,
+        gui = require('nw.gui'),
+        controller_port = location.search.match(/port=(\S+?)(;|&|$)/)[1],
+        pid = location.search.match(/pid=(\S+?)(;|&|$)/)[1];
+
+    var argv = gui.App.argv;
+
+    if (argv.indexOf('--dev-tools') >= 0)
+        gui.Window.get().showDevTools();
+
+    if (argv.indexOf('--debug-brk') >= 0) {
+        alert('--debug-brk - wait for dev tools opened');
+        debugger;
+    }
+
+
+    // polling of the controller host
+    var xhr = new XMLHttpRequest(),
+        pool_idle = 0,
+        pooling_url = "http://localhost:" + controller_port + '?pid=' + pid;
+    xhr.onload = function() {
+        if (this.responseText) {
+            try {
+                var msg = JSON.parse(this.responseText);
+
+                if ('max_threads' in msg) {
+                    // options
+                    crawling_agent = new CrawlingAgent(msg);
+                    if (msg.dev_tools || msg.debug_inject)
+                        gui.Window.get().showDevTools();
+                } else if (!crawling_agent) {
+                    // agent main page was reloaded
+                    gui.App.quit();
+                } else if (msg.command === 'task') {
+                    crawling_agent.addTask(msg.task);
+                } else if (msg.command === 'remove') {
+                    crawling_agent.removeTask(msg.id);
+                }
+            } catch (e) { console.log(e); }
+            pool_idle = 0;
+        } else
+            pool_idle = 30;
+    };
+    setInterval(function() {
+        if (--pool_idle < 0) {
+            xhr.open("get", pooling_url, false);
+            xhr.send();
+        }
+    }.bind(this), 200);
+
+
+    function CrawlingAgent(options) {
+
+        // options
+
+        if (!('controller_port' in options) || !('inject' in options))
+            alert('Invalid options');
+
+        // task timeout
+        !options.timeout && (options.timeout = 20000);
+        // after loading wait for page modification scripts
+        !options.wait_page_rendered && (options.wait_page_rendered = 250);
+
+        var tasks = []; // active tasks
+
+        function buildInjectModule(task) {
+// force name of user defined function to "inject()"
+// inject() returns value will be sent by send_session_data() to task.data[window.name]
+
+            // exclude inject function from injected options object
+            var inject_options = {};
+            for(var prop in options)
+                if ('inject'.indexOf(prop) < 0)
+                    inject_options[prop] = options[prop];
+
+return '(function() {\n\
+try {\n\
+    var task = JSON.parse((\'' + JSON.stringify(task).replace(/\\/g, "\' + '") + '\'));\n\
+    var options = JSON.parse((\'' + JSON.stringify(inject_options).replace(/\\/g, "\' + '") + '\'));\n\
+    if (!window.name) window.name = task.id + "-" + Math.random().toString().slice(-5);\n\
+    var session_data = task.data[window.name] || (task.data[window.name] = {});\n\
+    var history_list = session_data.history || (session_data.history = []);\n\
+    var history_item = { location: window.location.href }; history_list.push(history_item);\n\
+    if (!Array.isArray(session_data.errlog)) session_data.errlog = [];\
+    function __errlog(msg) { if (msg) { session_data.errlog.push(msg); } }\
+    while(js_errors_buffer.length) __errlog(js_errors_buffer.shift());\
+    setInterval(function() { while(js_errors_buffer.length) __errlog(js_errors_buffer.shift()); }, 20);\n\
+    ' + send_session_data.toString() + '\n\
+    function inject() {'
+        + (options.debug_inject ? 'debugger;' : '')
+        + options.inject.slice(options.inject.indexOf('{') + 1) + '\n\
+    var result = inject(); if (result) send_session_data();\n\
+} catch (e) {\n\
+    __errlog(e.toString());\n\
+    send_session_data();\n\
+}\n\
+})();';
+        }
+
+        // send session data to controller process
+        function send_session_data() {
+            var script = document.createElement('script');
+            script.src = 'http://localhost:' + options.controller_port + '/?tid=' + task.id + '&win=' + encodeURIComponent(window.name) + '&data=' + encodeURIComponent(JSON.stringify(session_data));
+            document.head && document.head.appendChild(script);
+        }
+
+        this.addTask = function(task) {
+
+            tasks.push(task);
+
+            // create iframe
+
+            var nw_window = gui.Window.get();
+
+            var iframe = document.createElement('iframe');
+            iframe.setAttribute('id', task.id + "-" + Math.random().toString().slice(-5));
+            iframe.setAttribute('src', task.url);
+            iframe.setAttribute('nwdisable', true);
+            iframe.setAttribute('nwfaketop', true);
+            iframe.setAttribute('style', 'position:fixed; width:100%; height:96%; left:0; right:0; bottom:0;');
+            iframe.addEventListener('load', function() {
+
+                // 1. inject resources
+
+                options.resources_inject.forEach(function(resurl) {
+                    setTimeout(function() {
+                        if (!/(^\S+?:\/\/)|(^\/\/)/.test(resurl))
+                            resurl = 'http://localhost:' + options.controller_port + (resurl[0] === '/' ? '' : '/') + resurl;
+
+var evaluate = '';
+                        if (resurl.slice(-3) === '.js') {
+evaluate = '(function() {\
+var script = document.createElement("script");\
+script.setAttribute("src", "' + resurl + '");\
+document.head.appendChild(script);\
+})();';
+
+} else if (resurl.slice(-4) === '.css') {
+evaluate = '(function() {\
+var link = document.createElement("link");\
+link.setAttribute("rel", "stylesheet");\
+link.setAttribute("type", "text/css");\
+link.setAttribute("href", "' + resurl + '");\
+document.head.appendChild(link);\
+})();';
+}
+nw_window.eval(iframe, evaluate);
+                    }, 0);
+                });
+
+                // wait for page scripts
+                setTimeout(function() {
+                    // inject script
+                    nw_window.eval(iframe, buildInjectModule(task));
+                }, options.wait_page_rendered);
+            });
+            document.body.appendChild(iframe);
+
+            // Set error catcher
+            nw_window.eval(iframe, 'window.js_errors_buffer = []; window.addEventListener("error", function(err) { window.js_errors_buffer.push("error: " + JSON.stringify(err)); });');
+        };
+
+        this.removeTask = function(task_id) {
+
+            for(var i = tasks.length - 1; i >= 0; i--) {
+                var task = tasks[i];
+                if (task.id === task_id) {
+                    tasks.splice(i, 1);
+                    Array.prototype.slice.call(document.querySelectorAll('iframe')).forEach(function (iframe) {
+                        if (iframe.getAttribute('id').slice(0, task_id.length + 1) === task_id + '-')
+                            iframe.parentNode.removeChild(iframe);
+                    });
+                }
+            }
+        };
+    }
+
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,18 @@
+{
+  "name": "Sitemap.xml generator",
+  "main": "main.html",
+  "nodejs": true,
+  "description": "Example node-webkit application: site crawler, sitemap.xml generation tool",
+  "version": "1.0.0",
+  "keywords": [ "site", "crawler", "sitemap", "template", "node-webkit", "example", "application" ],
+  "chromium-args": "--disable-images --disable-plugins --js-flags=--harmony",
+  "window": {
+    "toolbar": true,
+    "frame": true,
+    "width": 600,
+    "height": 640,
+    "min_width": 600,
+    "min_height": 640,
+    "position": "center"
+  }
+}

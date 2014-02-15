@@ -1,4 +1,7 @@
-Web crawling tools
+Node-webkit application examples
 ==================
 
-* sitemap-builder - sitemap.xml builder
+Web crawling tools
+------------------
+
+* sitemap-generator - Example node-webkit application: site crawler, sitemap.xml generation tool.

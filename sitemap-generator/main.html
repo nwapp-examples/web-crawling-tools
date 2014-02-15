@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en-US">
+<head>
+    <meta charset="utf-8">
+    <title>Node-webkit application example: site crawler, sitemap.xml generation tool</title>
+    <script src="document.js" root="" id="DOC"></script>
+</head>
+<body>
+
+<!--content-panel
+<table style="display:table; position:fixed; left:0; top:0; width:100%; height:100%; border:none;">
+    <tr style="height:auto;"><td style="border:none; padding:0 20px 20px 20px;">
+        <h2 style="color:#6DA3BD;">sitemap.xml generation tool</h2>
+        <h4>Node-webkit application example</h4>
+    </td></tr>
+    <tr style="width:100%; height:100%;"><td style="border:none; padding:0 20px; display:block; max-width:800px;">
+
+        <label class="martop10 control-label">Start urls</label>
+        [start_urls:textarea`form-control width:100%; height:100px; resize:none;/]
+
+        <label class="martop10 control-label">Limit number of crawled pages</label>
+        [limit_pages:bootstrap.ControlInput`width:60px/]
+
+        <label class="martop10 control-label">Filter domain</label>
+        [filter_domains:bootstrap.ControlInput/]
+
+        <label class="martop10 control-label">Allowed extensions</label>
+        [allowed_extensions:bootstrap.ControlInput/]
+
+        [allowed_extensions_only:bootstrap.ControlCheckbox]allowed  extensions only[/bootstrap.ControlCheckbox]
+    </td></tr>
+    <tr style="height:auto; background-color:#f8f8f8; border-top: #efefef solid 1px; text-align:right;"><td style="border:none;">
+        [OK:bootstrap.Button primary`margin:4px;]Start[/bootstrap.Button]
+        [close:bootstrap.Button`margin:4px;]Close[/bootstrap.Button]
+    </td></tr>
+</table>
+-->
+
+<script>
+if (window.top === window.self) {
+
+    var processor = require('processor'),
+        com = processor.create;
+    // using
+    require('./crawler');
+
+    var crawler,
+        panel;
+
+    var limit_pages = 0,
+        remove_hash = true,         // remove hash from url
+        filter_domains,             // {string} allowed domain
+        allowed_extensions,         // {boolean} allowed page file extensions
+        allowed_extensions_only;    // {boolean} only listed extensions
+
+    // this data extraction function will be injected to context of each crawled document
+    // defined task, session_data, history_data, history_item, send_session_data(), __errlog()
+    function data_extract_inject() {
+
+        var hrefs = session_data.hrefs = {};
+
+        // collect all a.href
+        Array.prototype.slice.call(document.querySelectorAll('a')).forEach(function(a) {
+            hrefs[a.href] = true;
+        });
+
+        send_session_data();
+    }
+
+    // extracted data process callback invoked in main window
+    function data_process_callback(task, window_name) {
+        var session_data = task.data[window_name];
+
+        // mark task completed (dispose iframe)
+        task.state = 1;
+
+        // process urls
+        Object.keys(session_data.hrefs || {}).forEach(function(href) {
+
+            if (limit_pages && crawler.task_count >= limit_pages)
+                return;
+
+            if (remove_hash) {
+                var pos = href.indexOf('#');
+                if (pos >= 0)
+                    href = href.slice(0, pos);
+            }
+
+            if (href in crawler.by_url)
+                return;
+
+            if (!/^(http:)|(https:)|(file:)/.test(href))
+                return;
+
+            // check domain
+            if (filter_domains) {
+                var domain = /.*:\/\/([^\/]*)/.exec(href);
+                if (domain) {
+                    domain = domain[1];
+                    if (domain !== filter_domains) {
+//                        console.log(' -d ' + href);
+                        return;
+                    }
+                }
+            }
+
+            if (allowed_extensions) {
+                // check extension
+                var last_path_segment = href.split('/').slice(3).slice(-1),
+                    extension = /(\.[^./]*)$/.exec(last_path_segment);
+                if (extension) {
+                    extension = extension[1];
+                    if (allowed_extensions.indexOf(extension + ' ') < 0) {
+//                        console.log(' -e ' + href);
+                        return;
+                    }
+                } else if (allowed_extensions_only) {
+//                    console.log(' -eo ' + href);
+                    return;
+                }
+            }
+
+            // enqueue href
+            if (crawler.enqueueUrl(href))
+                console.log(' + ' + href);
+        });
+    }
+
+    function on_error(err) {
+        console.log(err);
+    }
+
+    function on_done() {
+
+        panel.OK.text('Start');
+
+        console.log('done');
+
+        // write sitemap.xml file
+
+        var xml = controls.create(function() {
+            return '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+                    + this.printControls() + '\n</urlset>';
+        });
+        Object.keys(crawler.by_url).forEach(function(url) {
+            xml.add(function() { return '\n<url>\n<loc>' + (this.attributes.url || '') + '</loc>\n</url>'; },
+                    {'url': url});
+        });
+        require('fs').writeFile('sitemap.xml', xml.outerHTML());
+        require('child_process').exec('sitemap.xml');
+    }
+
+    function start_stop() {
+
+        if (crawler && crawler.started) {
+            crawler.stop();
+            panel.OK.text('Start');
+            return;
+        }
+
+        limit_pages = parseInt(panel.limit_pages.element.value);
+
+        // filter domain
+        filter_domains = panel.filter_domains.element.value;
+
+        // page file extensions
+        allowed_extensions = panel.allowed_extensions.element.value
+                .replace(/;,\|/g, ' ');
+        if (allowed_extensions.slice(-1) !== ' ')
+            allowed_extensions += ' ';
+        allowed_extensions_only = panel.allowed_extensions_only.checked;
+
+        // urls
+        var start_urls =
+            panel.start_urls.element.value
+                .split(/$/gm)
+                    .filter(function(url) { return url.trim(); });
+
+        crawler = com('webcrawler', {
+            urls: start_urls,
+            resources_inject: [],
+            inject: data_extract_inject,
+            max_agents:         1,
+            max_threads:        4,
+            max_fails:          5,
+            timeout:            20000,
+            start_interval:     250,
+            wait_page_rendered: 250,
+            debug_inject: false,
+            dev_tools: false,
+            debug_agent: false
+        });
+
+        crawler.on('callback', data_process_callback);
+        crawler.on('error', on_error);
+        crawler.on('done', on_done);
+
+        panel.OK.text('Stop');
+        crawler.start();
+    }
+
+    // Initialize on document loaded
+    $DOC.onload(function() {
+
+        panel = $DOC.cbody['content-panel'];
+
+        // save and restore form values
+
+        ['start_urls', 'filter_domains', 'allowed_extensions', 'limit_pages'].forEach(function(id) {
+            panel[id]
+                .on('change', function() {
+                    localStorage.setItem('--sitemap-generator-input ' + id, panel[id].element.value);
+                })
+                .element.value = localStorage.getItem('--sitemap-generator-input ' + id) || '';
+        });
+
+        panel.allowed_extensions_only
+            .on('change', function() {
+                if(panel.allowed_extensions_only.checked)
+                        localStorage.setItem('--sitemap-generator-input allowed_extensions_only', '*');
+                else    localStorage.removeItem('--sitemap-generator-input allowed_extensions_only');
+            })
+            .checked = localStorage.getItem('--sitemap-generator-input allowed_extensions_only') || '';
+
+        // button events
+
+        // OK button
+        panel.OK.listen('click', function() {
+            start_stop();
+        });
+
+        // Close button
+        panel.close.listen('click', function() {
+            stop();
+            var gui = require('nw.gui');
+            gui.App.quit();
+        });
+    });
+}
+
+</script>
+</body>
+</html>
