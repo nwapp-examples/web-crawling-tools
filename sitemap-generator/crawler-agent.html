@@ -78,7 +78,7 @@
 
         function buildInjectModule(task) {
 // force name of user defined function to "inject()"
-// inject() returns value will be sent by send_session_data() to task.data[window.name]
+// session_data = task.data[window.name]
 
             // exclude inject function from injected options object
             var inject_options = {};

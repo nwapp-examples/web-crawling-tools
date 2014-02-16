@@ -36,7 +36,7 @@
 
         var queue  = [],                // queued tasks
             id_gen = 100,
-            by_id  = this.by_id  = {},  // tasks by url
+            by_id  = this.by_id  = {},  // tasks by id
             by_url = this.by_url = {};  // tasks by url
 
         this.task_count = 0;
@@ -365,7 +365,7 @@
 
         function Dispatcher() {
 
-            var agents = [];    // процессы
+            var agents = [];    // processes
 
             this.polling = function(pid, response) {
                 for(var i = 0, c = agents.length; i < c; i++) {
@@ -400,7 +400,7 @@
                 }, this);
             };
 
-            // запустить задачу
+            // start task
             this.startTask = function(task) {
 
                 var args = crawler.arguments;
