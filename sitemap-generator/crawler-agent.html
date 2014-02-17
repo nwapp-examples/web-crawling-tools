@@ -170,7 +170,7 @@ nw_window.eval(iframe, evaluate);
             document.body.appendChild(iframe);
 
             // Set error catcher
-            nw_window.eval(iframe, 'window.js_errors_buffer = []; window.addEventListener("error", function(err) { window.js_errors_buffer.push("error: " + JSON.stringify(err)); });');
+            nw_window.eval(iframe, '(function() { window.js_errors_buffer = []; window.addEventListener("error", function(err) { window.js_errors_buffer.push("error: " + err); }); })();');
         };
 
         this.removeTask = function(task_id) {
